@@ -1,0 +1,163 @@
+buildscript {
+    repositories {
+        mavenCentral()
+        jcenter()
+        maven {
+            name = 'forge'
+            url = 'http://files.minecraftforge.net/maven'
+        }
+        maven {
+            name = 'SpongePowered'
+            url = 'https://repo.spongepowered.org/repository/maven-public/'
+        }
+        gradlePluginPortal()
+    }
+    dependencies {
+        classpath 'net.minecraftforge.gradle:ForgeGradle:2.3-SNAPSHOT'
+        classpath 'org.spongepowered:mixingradle:0.6-SNAPSHOT'
+        classpath 'com.github.jengelman.gradle.plugins:shadow:2.0.4'
+        classpath 'com.github.gmazzo:gradle-buildconfig-plugin:2.0.2'
+    }
+}
+
+apply plugin: 'net.minecraftforge.gradle.forge'
+apply plugin: 'org.spongepowered.mixin'
+apply plugin: 'com.github.gmazzo.buildconfig'
+apply plugin: 'com.github.johnrengelman.shadow'
+
+version project.modVersion
+group project.modGroup
+
+sourceCompatibility = targetCompatibility = '1.8'
+compileJava {
+    sourceCompatibility = targetCompatibility = '1.8'
+}
+
+minecraft {
+    version = project.forgeVersion
+    runDir = 'run'
+    mappings = project.mcpVersion
+    coreMod = 'opm.luftwaffe.mixin.LuftwaffeMixinLoader'
+    makeObfSourceJar = false
+}
+
+repositories {
+    mavenCentral()
+    maven {
+        name = 'spongepowered-repo'
+        url = 'https://repo.spongepowered.org/repository/maven-public/'
+    }
+    jcenter()
+}
+
+dependencies {
+    compile group: "com.googlecode.json-simple", name: "json-simple", version: "1.1.1"
+    compile('org.spongepowered:mixin:0.7.11-SNAPSHOT') {
+        exclude module: 'launchwrapper'
+        exclude module: 'guava'
+        exclude module: 'gson'
+        exclude module: 'commons-io'
+    }
+}
+
+tasks.register('getDeps', Copy) {
+    from sourceSets.main.runtimeClasspath
+    into 'runtime/'
+}
+
+processResources {
+    inputs.property 'version', project.version
+    inputs.property 'mcversion', project.minecraft.version
+    from(sourceSets.main.resources.srcDirs) {
+        include 'mcmod.info'
+        expand 'version': project.version, 'mcversion': project.minecraft.version
+    }
+    from(sourceSets.main.resources.srcDirs) {
+        exclude 'mcmod.info'
+    }
+    rename '(.+_at.cfg)', 'META-INF/$1'
+}
+
+shadowJar {
+    dependencies {
+        include(dependency('club.minnced:java-discord-rpc'))
+        include(dependency('com.googlecode.json-simple:json-simple:1.1.1'))
+        include(dependency('org.spongepowered:mixin'))
+    }
+    exclude 'dummyThing'
+    exclude 'LICENSE.txt'
+    classifier = 'release'
+}
+
+mixin {
+    defaultObfuscationEnv = 'searge'
+    add sourceSets.main, 'mixins.luftwaffe.refmap.json'
+}
+
+reobf {
+    shadowJar {
+        mappingType = 'SEARGE'
+        classpath = sourceSets.main.compileClasspath
+    }
+}
+
+jar {
+    manifest {
+        attributes(
+                'MixinConfigs': 'mixins.luftwaffe.json',
+                'tweakClass': 'org.spongepowered.asm.launch.MixinTweaker',
+                'TweakOrder': 0,
+                'FMLCorePluginContainsFMLMod': 'true',
+                'FMLCorePlugin': 'opm.luftwaffe.mixin.luftwaffeMixinLoader',
+                'ForceLoadAsMod': 'true',
+                'FMLAT': 'luftwaffe_at.cfg'
+        )
+    }
+}
+
+def getCommitHash = { ->
+    try {
+        def gitProcess = 'git rev-parse HEAD'.execute()
+        gitProcess.waitFor()
+        def commitHash = gitProcess.text.trim().take(10)
+        def isDirty = [
+                'git diff --quiet --ignore-submodules'.execute(),
+                'git diff --cached --quiet'.execute()
+        ].any { process ->
+            process.waitFor()
+            process.exitValue() != 0
+        }
+        return isDirty ? commitHash + "+" : commitHash
+    } catch (Exception e) {
+        return "unknown"
+    }
+}
+
+def getReleaseTarget = { ->
+    return gradle.startParameter.taskNames.any { it.contains('runClient') || it.contains('runServer') } ? "dev" : "release"
+}
+
+def getRevisionCount = { ->
+    try {
+        def gitProcess = 'git rev-list --all --count'.execute()
+        gitProcess.waitFor()
+        return gitProcess.text.trim()
+    } catch (Exception e) {
+        return "0"
+    }
+}
+
+buildConfig {
+    className = "BuildConstants"
+    packageName = project.modGroup
+    buildConfigField "String", "MOD_NAME", "\"opm.luftwaffe\""
+    buildConfigField "String", "MOD_ID", "\"opm.luftwaffe\""
+    buildConfigField "String", "MOD_VERSION", "\"${project.version}\""
+    buildConfigField "String", "MINECRAFT_VERSION", "\"1.12.2\""
+    buildConfigField "String", "RELEASE_TARGET", "\"${getReleaseTarget()}\""
+    buildConfigField "String", "GIT_HASH", "\"${getCommitHash()}\""
+    buildConfigField "String", "GIT_REVISION", "\"${getRevisionCount()}\""
+}
+
+compileJava.dependsOn generateBuildConfig
+build.dependsOn(shadowJar)

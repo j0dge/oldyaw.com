@@ -1,6 +1,6 @@
-# heres the normal version of luftwaffe
+# oldyaw.com
 
-still no luftwaffe gold edition leak :(
+oldyaw gold edition type shit :(
 
 credits: crystalopium, doick, KowkZombie and Cxiy! - newbase j0dge
 
